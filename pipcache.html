@@ -1,1 +1,2454 @@
-soon
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PipCache — Локальный репозиторий pip пакетов</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        code, pre, .mono { font-family: 'JetBrains Mono', monospace; }
+        .glow-amber { box-shadow: 0 0 40px rgba(245,158,11,0.25); }
+        .glow-amber:hover { box-shadow: 0 0 60px rgba(245,158,11,0.4); }
+        .glow-green { box-shadow: 0 0 30px rgba(34,197,94,0.2); }
+        .glow-blue { box-shadow: 0 0 30px rgba(59,130,246,0.2); }
+        .terminal-bg { background: #0d1117; }
+        .cursor-blink::after { content: '█'; animation: blink 1s step-end infinite; color: #f59e0b; }
+        @keyframes blink { 50% { opacity: 0; } }
+        @keyframes fadeInUp { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes pulse-ring { 0% { transform: scale(0.9); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
+        .fade-in { animation: fadeInUp 0.6s ease-out forwards; }
+        .fade-d1 { animation-delay: 0.1s; opacity:0; }
+        .fade-d2 { animation-delay: 0.2s; opacity:0; }
+        .fade-d3 { animation-delay: 0.3s; opacity:0; }
+        .fade-d4 { animation-delay: 0.4s; opacity:0; }
+        .fade-d5 { animation-delay: 0.5s; opacity:0; }
+        .float-anim { animation: float 3s ease-in-out infinite; }
+        pre::-webkit-scrollbar { height: 6px; }
+        pre::-webkit-scrollbar-thumb { background: #f59e0b44; border-radius: 3px; }
+        .pkg-card { transition: all 0.3s; }
+        .pkg-card:hover { transform: translateY(-4px); border-color: rgba(245,158,11,0.4); }
+        .file-tree { max-height: 0; overflow: hidden; transition: max-height 0.4s ease; }
+        .file-tree.open { max-height: 2000px; }
+        .copy-btn { transition: all 0.2s; }
+        .copy-btn:active { transform: scale(0.95); }
+        .search-glow:focus { box-shadow: 0 0 0 3px rgba(245,158,11,0.3); }
+        .nav-blur { backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+        .tab-active { border-color: #f59e0b; color: #f59e0b; background: rgba(245,158,11,0.1); }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+<!-- Nav -->
+<nav class="fixed top-0 left-0 right-0 z-50 nav-blur bg-gray-950/80 border-b border-gray-800">
+    <div class="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-400 text-lg">📦</div>
+            <div>
+                <span class="font-bold text-lg text-amber-400">PipCache</span>
+                <span class="text-gray-500 text-sm ml-2 hidden sm:inline">Локальный репозиторий</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <a href="index.html" class="text-sm text-gray-400 hover:text-amber-400 transition-colors">← Главная</a>
+            <span class="text-gray-700">|</span>
+            <span class="text-sm text-gray-500 mono" id="pkgCount">2 пакета</span>
+        </div>
+    </div>
+</nav>
+
+<div class="pt-16">
+
+<!-- Hero -->
+<section class="relative overflow-hidden">
+    <div class="absolute inset-0 bg-gradient-to-br from-amber-900/20 via-gray-950 to-orange-900/10"></div>
+    <div class="absolute top-20 left-1/2 -translate-x-1/2 w-[700px] h-[400px] bg-amber-500/5 rounded-full blur-3xl"></div>
+    <div class="relative max-w-5xl mx-auto px-6 pt-20 pb-16 text-center">
+        <div class="fade-in fade-d1 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm mb-8">
+            <span class="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span>
+            pip install --index-url ./pips/
+        </div>
+        <h1 class="fade-in fade-d2 text-5xl md:text-7xl font-black tracking-tight mb-6">
+            <span class="text-amber-400">Pip</span><span class="text-white">Cache</span>
+        </h1>
+        <p class="fade-in fade-d3 text-xl md:text-2xl text-gray-400 max-w-2xl mx-auto mb-4">
+            Локальный репозиторий <span class="text-amber-400 font-semibold">pip</span> пакетов для Termux.
+            Скачивай, устанавливай, работай оффлайн.
+        </p>
+        <p class="fade-in fade-d3 text-base text-gray-500 max-w-xl mx-auto mb-10">
+            Все проекты лежат в папке <code class="text-amber-400/80 bg-amber-500/10 px-2 py-0.5 rounded">pips/</code> рядом с этим сайтом
+        </p>
+
+        <!-- Search -->
+        <div class="fade-in fade-d4 max-w-lg mx-auto mb-8">
+            <div class="relative">
+                <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                <input type="text" id="searchInput" placeholder="Поиск пакетов..." class="search-glow w-full pl-12 pr-4 py-4 bg-gray-900/80 border border-gray-700 rounded-xl text-white placeholder-gray-500 outline-none focus:border-amber-500/50 transition-all" oninput="filterPackages()">
+            </div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="fade-in fade-d5 flex justify-center gap-8 text-sm">
+            <div class="text-center">
+                <div class="text-2xl font-bold text-amber-400">2</div>
+                <div class="text-gray-500">пакета</div>
+            </div>
+            <div class="text-center">
+                <div class="text-2xl font-bold text-green-400">v2.0</div>
+                <div class="text-gray-500">termux-bat</div>
+            </div>
+            <div class="text-center">
+                <div class="text-2xl font-bold text-blue-400">v1.0</div>
+                <div class="text-gray-500">switch-pip</div>
+            </div>
+            <div class="text-center">
+                <div class="text-2xl font-bold text-purple-400">MIT</div>
+                <div class="text-gray-500">лицензия</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Packages Grid -->
+<section class="max-w-6xl mx-auto px-6 py-12" id="packages">
+    <h2 class="text-2xl font-bold mb-8 flex items-center gap-3">
+        <span class="w-1 h-8 bg-amber-500 rounded-full"></span>
+        Доступные пакеты
+    </h2>
+
+    <div class="grid md:grid-cols-2 gap-6" id="packageGrid">
+
+        <!-- Package 1: termux-bat -->
+        <div class="pkg-card rounded-2xl bg-gray-900/60 border border-gray-800 overflow-hidden" data-name="termux-bat" data-tags="bat batch windows android termux interpreter">
+            <div class="p-6">
+                <!-- Header -->
+                <div class="flex items-start justify-between mb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-xl bg-green-500/15 flex items-center justify-center text-2xl">⚡</div>
+                        <div>
+                            <h3 class="font-bold text-xl text-green-400">termux-bat</h3>
+                            <span class="text-xs mono text-gray-500">v2.0.0 • Python 3.7+</span>
+                        </div>
+                    </div>
+                    <span class="px-2 py-1 rounded-md bg-green-500/10 text-green-400 text-xs font-semibold">STABLE</span>
+                </div>
+
+                <p class="text-gray-400 text-sm mb-4">Запускай .bat файлы Windows прямо на Android в Termux. Полный интерпретатор batch-команд с поддержкой 40+ команд.</p>
+
+                <!-- Tags -->
+                <div class="flex flex-wrap gap-2 mb-4">
+                    <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-400 text-xs">.bat</span>
+                    <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-400 text-xs">interpreter</span>
+                    <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-400 text-xs">windows</span>
+                    <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-400 text-xs">termux</span>
+                    <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-400 text-xs">40+ commands</span>
+                </div>
+
+                <!-- Install command -->
+                <div class="terminal-bg rounded-lg p-3 mb-4 flex items-center justify-between group">
+                    <code class="text-sm text-green-400">pip install termux-bat</code>
+                    <button onclick="copyCmd('pip install termux-bat')" class="copy-btn opacity-0 group-hover:opacity-100 px-2 py-1 rounded bg-gray-800 text-gray-400 text-xs hover:text-green-400 cursor-pointer">📋</button>
+                </div>
+
+                <!-- File tree toggle -->
+                <button onclick="toggleTree('tree-bat')" class="text-sm text-amber-400 hover:text-amber-300 mb-3 cursor-pointer flex items-center gap-1">
+                    <span id="tree-bat-icon">▶</span> Структура проекта
+                </button>
+                <div id="tree-bat" class="file-tree">
+                    <div class="terminal-bg rounded-lg p-4 mono text-xs leading-relaxed mb-4">
+                        <div class="text-green-400">pips/termux-bat/</div>
+                        <div class="ml-3 text-gray-300">├── <span class="text-yellow-300">setup.py</span></div>
+                        <div class="ml-3 text-gray-300">├── <span class="text-yellow-300">README.md</span></div>
+                        <div class="ml-3 text-gray-300">├── <span class="text-yellow-300">LICENSE</span></div>
+                        <div class="ml-3 text-gray-300">├── <span class="text-blue-400">termux_bat/</span></div>
+                        <div class="ml-8 text-gray-300">├── <span class="text-yellow-300">__init__.py</span></div>
+                        <div class="ml-8 text-gray-300">├── <span class="text-yellow-300">interpreter.py</span> <span class="text-gray-600">← 900+ строк</span></div>
+                        <div class="ml-8 text-gray-300">└── <span class="text-yellow-300">cli.py</span></div>
+                        <div class="ml-3 text-gray-300">└── <span class="text-blue-400">examples/</span></div>
+                        <div class="ml-8 text-gray-300">├── <span class="text-yellow-300">hello.bat</span></div>
+                        <div class="ml-8 text-gray-300">├── <span class="text-yellow-300">menu.bat</span></div>
+                        <div class="ml-8 text-gray-300">├── <span class="text-yellow-300">files.bat</span></div>
+                        <div class="ml-8 text-gray-300">├── <span class="text-yellow-300">loops.bat</span></div>
+                        <div class="ml-8 text-gray-300">└── <span class="text-yellow-300">advanced.bat</span></div>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="flex gap-3">
+                    <button onclick="downloadBat()" class="flex-1 glow-green py-3 bg-green-500 hover:bg-green-400 text-gray-950 font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        Скачать .zip
+                    </button>
+                    <a href="index.html" class="px-4 py-3 border border-gray-700 hover:border-green-500/50 text-gray-400 hover:text-green-400 rounded-xl transition-all flex items-center justify-center">
+                        📖
+                    </a>
+                </div>
+                <div id="batStatus" class="mt-2 text-xs text-center"></div>
+            </div>
+        </div>
+
+        <!-- Package 2: switch-pip -->
+        <div class="pkg-card rounded-2xl bg-gray-900/60 border border-gray-800 overflow-hidden" data-name="switch-pip" data-tags="pip mirror pypi source index switch config">
+            <div class="p-6">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-xl bg-blue-500/15 flex items-center justify-center text-2xl">📦</div>
+                        <div>
+                            <h3 class="font-bold text-xl text-blue-400">switch-pip</h3>
+                            <span class="text-xs mono text-gray-500">v1.0.0 • Python 3.7+</span>
+                        </div>
+                    </div>
+                    <span class="px-2 py-1 rounded-md bg-blue-500/10 text-blue-400 text-xs font-semibold">STABLE</span>
+                </div>
+
+                <p class="text-gray-400 text-sm mb-4">Переключай источник pip пакетов одной командой. Свой зеркало, приватный репо, или обратно на PyPI.</p>
+
+                <div class="flex flex-wrap gap-2 mb-4">
+                    <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-400 text-xs">pip</span>
+                    <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-400 text-xs">mirror</span>
+                    <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-400 text-xs">config</span>
+                    <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-400 text-xs">pypi</span>
+                    <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-400 text-xs">termux</span>
+                </div>
+
+                <div class="terminal-bg rounded-lg p-3 mb-4 flex items-center justify-between group">
+                    <code class="text-sm text-blue-400">pip install switch-pip</code>
+                    <button onclick="copyCmd('pip install switch-pip')" class="copy-btn opacity-0 group-hover:opacity-100 px-2 py-1 rounded bg-gray-800 text-gray-400 text-xs hover:text-blue-400 cursor-pointer">📋</button>
+                </div>
+
+                <button onclick="toggleTree('tree-pip')" class="text-sm text-amber-400 hover:text-amber-300 mb-3 cursor-pointer flex items-center gap-1">
+                    <span id="tree-pip-icon">▶</span> Структура проекта
+                </button>
+                <div id="tree-pip" class="file-tree">
+                    <div class="terminal-bg rounded-lg p-4 mono text-xs leading-relaxed mb-4">
+                        <div class="text-blue-400">pips/switch-pip/</div>
+                        <div class="ml-3 text-gray-300">├── <span class="text-yellow-300">setup.py</span></div>
+                        <div class="ml-3 text-gray-300">├── <span class="text-yellow-300">README.md</span></div>
+                        <div class="ml-3 text-gray-300">├── <span class="text-yellow-300">LICENSE</span></div>
+                        <div class="ml-3 text-gray-300">└── <span class="text-blue-400">switch_pip/</span></div>
+                        <div class="ml-8 text-gray-300">├── <span class="text-yellow-300">__init__.py</span></div>
+                        <div class="ml-8 text-gray-300">└── <span class="text-yellow-300">cli.py</span> <span class="text-gray-600">← 300+ строк</span></div>
+                    </div>
+                </div>
+
+                <div class="flex gap-3">
+                    <button onclick="downloadPip()" class="flex-1 glow-blue py-3 bg-blue-500 hover:bg-blue-400 text-white font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        Скачать .zip
+                    </button>
+                    <a href="index.html" onclick="setTimeout(()=>switchProject&&switchProject('pip'),100)" class="px-4 py-3 border border-gray-700 hover:border-blue-500/50 text-gray-400 hover:text-blue-400 rounded-xl transition-all flex items-center justify-center">
+                        📖
+                    </a>
+                </div>
+                <div id="pipStatus" class="mt-2 text-xs text-center"></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Quick Commands -->
+<section class="max-w-6xl mx-auto px-6 py-12">
+    <h2 class="text-2xl font-bold mb-8 flex items-center gap-3">
+        <span class="w-1 h-8 bg-amber-500 rounded-full"></span>
+        Быстрая установка
+    </h2>
+
+    <div class="grid md:grid-cols-2 gap-6">
+        <!-- termux-bat install -->
+        <div class="terminal-bg rounded-2xl border border-gray-800 overflow-hidden">
+            <div class="flex items-center gap-2 px-4 py-2.5 bg-gray-900/50 border-b border-gray-800">
+                <div class="w-2.5 h-2.5 rounded-full bg-red-500/80"></div>
+                <div class="w-2.5 h-2.5 rounded-full bg-yellow-500/80"></div>
+                <div class="w-2.5 h-2.5 rounded-full bg-green-500/80"></div>
+                <span class="ml-2 text-gray-500 text-xs mono">termux-bat install</span>
+            </div>
+            <div class="p-5 mono text-sm leading-relaxed">
+                <div class="text-gray-500">$ <span class="text-green-400">cd pips/termux-bat</span></div>
+                <div class="text-gray-500 mt-1.5">$ <span class="text-green-400">pip install .</span></div>
+                <div class="text-gray-400 mt-1">Successfully installed termux-bat-2.0.0</div>
+                <div class="text-gray-500 mt-3">$ <span class="text-green-400">termux-bat</span> <span class="text-yellow-300">examples/hello.bat</span></div>
+                <div class="text-cyan-400 mt-1">Hello from BAT on Android!</div>
+                <div class="text-cyan-400">Current dir: /data/data/com.termux/files/home</div>
+                <div class="text-gray-400 mt-1">[termux-bat] Done in 0.03 sec</div>
+            </div>
+        </div>
+
+        <!-- switch-pip install -->
+        <div class="terminal-bg rounded-2xl border border-gray-800 overflow-hidden">
+            <div class="flex items-center gap-2 px-4 py-2.5 bg-gray-900/50 border-b border-gray-800">
+                <div class="w-2.5 h-2.5 rounded-full bg-red-500/80"></div>
+                <div class="w-2.5 h-2.5 rounded-full bg-yellow-500/80"></div>
+                <div class="w-2.5 h-2.5 rounded-full bg-green-500/80"></div>
+                <span class="ml-2 text-gray-500 text-xs mono">switch-pip install</span>
+            </div>
+            <div class="p-5 mono text-sm leading-relaxed">
+                <div class="text-gray-500">$ <span class="text-blue-400">cd pips/switch-pip</span></div>
+                <div class="text-gray-500 mt-1.5">$ <span class="text-blue-400">pip install .</span></div>
+                <div class="text-gray-400 mt-1">Successfully installed switch-pip-1.0.0</div>
+                <div class="text-gray-500 mt-3">$ <span class="text-blue-400">switch-pip --show</span></div>
+                <div class="text-cyan-400 mt-1">📦 Текущий pip index-url:</div>
+                <div class="text-yellow-300">   https://pypi.org/simple/</div>
+                <div class="text-gray-500 mt-3">$ <span class="text-blue-400">switch-pip --default</span></div>
+                <div class="text-green-400 mt-1">✅ pip сброшен на PyPI</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- How to use as local server -->
+<section class="max-w-6xl mx-auto px-6 py-12">
+    <h2 class="text-2xl font-bold mb-8 flex items-center gap-3">
+        <span class="w-1 h-8 bg-amber-500 rounded-full"></span>
+        Локальный pip сервер
+    </h2>
+    <div class="bg-gray-900/40 rounded-2xl border border-gray-800 p-8">
+        <p class="text-gray-400 mb-6">Подними локальный сервер пакетов прямо из папки <code class="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">pips/</code> — и устанавливай пакеты по сети без интернета:</p>
+
+        <div class="space-y-6">
+            <div class="flex gap-4">
+                <div class="flex-shrink-0 w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center font-bold text-gray-950 text-sm">1</div>
+                <div class="flex-1">
+                    <h3 class="font-semibold mb-2">Запусти HTTP сервер</h3>
+                    <div class="terminal-bg rounded-xl border border-gray-800 p-4 mono text-sm">
+                        <span class="text-gray-500">$ </span><span class="text-amber-400">cd pips/</span><br>
+                        <span class="text-gray-500">$ </span><span class="text-amber-400">python -m http.server 8080</span><br>
+                        <span class="text-gray-400">Serving HTTP on 0.0.0.0 port 8080 ...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="flex gap-4">
+                <div class="flex-shrink-0 w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center font-bold text-gray-950 text-sm">2</div>
+                <div class="flex-1">
+                    <h3 class="font-semibold mb-2">Устанавливай с другого устройства</h3>
+                    <div class="terminal-bg rounded-xl border border-gray-800 p-4 mono text-sm">
+                        <span class="text-gray-500">$ </span><span class="text-amber-400">pip install termux-bat --index-url http://192.168.1.100:8080/termux-bat/</span>
+                    </div>
+                </div>
+            </div>
+            <div class="flex gap-4">
+                <div class="flex-shrink-0 w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center font-bold text-gray-950 text-sm">3</div>
+                <div class="flex-1">
+                    <h3 class="font-semibold mb-2">Или используй switch-pip!</h3>
+                    <div class="terminal-bg rounded-xl border border-gray-800 p-4 mono text-sm">
+                        <span class="text-gray-500">$ </span><span class="text-blue-400">switch-pip http://192.168.1.100:8080/</span><br>
+                        <span class="text-green-400">✅ pip index-url изменён!</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Package Details Table -->
+<section class="max-w-6xl mx-auto px-6 py-12">
+    <h2 class="text-2xl font-bold mb-8 flex items-center gap-3">
+        <span class="w-1 h-8 bg-amber-500 rounded-full"></span>
+        Детали пакетов
+    </h2>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b border-gray-800 text-left">
+                    <th class="py-3 px-4 text-gray-400 font-semibold">Пакет</th>
+                    <th class="py-3 px-4 text-gray-400 font-semibold">Версия</th>
+                    <th class="py-3 px-4 text-gray-400 font-semibold">Python</th>
+                    <th class="py-3 px-4 text-gray-400 font-semibold">Лицензия</th>
+                    <th class="py-3 px-4 text-gray-400 font-semibold">Файлов</th>
+                    <th class="py-3 px-4 text-gray-400 font-semibold">Описание</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="border-b border-gray-800/50 hover:bg-gray-900/50">
+                    <td class="py-3 px-4"><span class="text-green-400 font-semibold mono">termux-bat</span></td>
+                    <td class="py-3 px-4 mono text-gray-300">2.0.0</td>
+                    <td class="py-3 px-4 text-gray-400">≥ 3.7</td>
+                    <td class="py-3 px-4 text-gray-400">MIT</td>
+                    <td class="py-3 px-4 text-gray-400">10</td>
+                    <td class="py-3 px-4 text-gray-400">Интерпретатор .bat для Termux</td>
+                </tr>
+                <tr class="border-b border-gray-800/50 hover:bg-gray-900/50">
+                    <td class="py-3 px-4"><span class="text-blue-400 font-semibold mono">switch-pip</span></td>
+                    <td class="py-3 px-4 mono text-gray-300">1.0.0</td>
+                    <td class="py-3 px-4 text-gray-400">≥ 3.7</td>
+                    <td class="py-3 px-4 text-gray-400">MIT</td>
+                    <td class="py-3 px-4 text-gray-400">5</td>
+                    <td class="py-3 px-4 text-gray-400">Переключатель pip index-url</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- All Commands Reference -->
+<section class="max-w-6xl mx-auto px-6 py-12">
+    <h2 class="text-2xl font-bold mb-8 flex items-center gap-3">
+        <span class="w-1 h-8 bg-amber-500 rounded-full"></span>
+        Справка по командам
+    </h2>
+
+    <!-- Tabs -->
+    <div class="flex gap-2 mb-6">
+        <button onclick="showRef('ref-bat')" id="refBatTab" class="tab-active px-5 py-2.5 rounded-lg border border-gray-700 text-sm font-semibold cursor-pointer transition-all">⚡ termux-bat</button>
+        <button onclick="showRef('ref-pip')" id="refPipTab" class="px-5 py-2.5 rounded-lg border border-gray-700 text-sm font-semibold text-gray-400 cursor-pointer transition-all">📦 switch-pip</button>
+    </div>
+
+    <!-- termux-bat reference -->
+    <div id="ref-bat">
+        <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">@echo off/on</span> <span class="text-gray-500 ml-1">управление эхо</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">echo</span> <span class="text-gray-500 ml-1">вывод текста</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">set VAR=val</span> <span class="text-gray-500 ml-1">переменные</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">set /p</span> <span class="text-gray-500 ml-1">ввод пользователя</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">set /a</span> <span class="text-gray-500 ml-1">арифметика</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">if / else</span> <span class="text-gray-500 ml-1">условия</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">if exist/defined</span> <span class="text-gray-500 ml-1">проверки</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">if equ/neq/lss</span> <span class="text-gray-500 ml-1">сравнения</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">goto :label</span> <span class="text-gray-500 ml-1">переход</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">call :sub</span> <span class="text-gray-500 ml-1">подпрограмма</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">for %%i in</span> <span class="text-gray-500 ml-1">цикл</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">for /l /f /r /d</span> <span class="text-gray-500 ml-1">варианты</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">cd / dir</span> <span class="text-gray-500 ml-1">навигация</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">mkdir / rmdir</span> <span class="text-gray-500 ml-1">папки</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">del / copy / move</span> <span class="text-gray-500 ml-1">файлы</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">type / find</span> <span class="text-gray-500 ml-1">содержимое</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">findstr</span> <span class="text-gray-500 ml-1">regex поиск</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">sort / more</span> <span class="text-gray-500 ml-1">обработка</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">xcopy / robocopy</span> <span class="text-gray-500 ml-1">копирование</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">cls / pause</span> <span class="text-gray-500 ml-1">управление</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">choice</span> <span class="text-gray-500 ml-1">выбор</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">exit /b</span> <span class="text-gray-500 ml-1">выход</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">pushd / popd</span> <span class="text-gray-500 ml-1">стек директорий</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">setlocal</span> <span class="text-gray-500 ml-1">локальные var</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">timeout / title</span> <span class="text-gray-500 ml-1">терминал</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">where / whoami</span> <span class="text-gray-500 ml-1">система</span></div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-3 hover:border-green-500/30 transition-colors"><span class="text-green-400 font-bold mono">> >> | 2>nul</span> <span class="text-gray-500 ml-1">pipes</span></div>
+        </div>
+    </div>
+
+    <!-- switch-pip reference -->
+    <div id="ref-pip" class="hidden">
+        <div class="space-y-3 text-sm">
+            <div class="terminal-bg rounded-lg border border-gray-800 p-4 hover:border-blue-500/30 transition-colors flex items-start gap-4">
+                <span class="text-blue-400 mono font-bold shrink-0">switch-pip</span>
+                <span class="text-gray-400">Интерактивный режим — спросит URL зеркала</span>
+            </div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-4 hover:border-blue-500/30 transition-colors flex items-start gap-4">
+                <span class="text-blue-400 mono font-bold shrink-0">switch-pip &lt;URL&gt;</span>
+                <span class="text-gray-400">Установить index-url напрямую</span>
+            </div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-4 hover:border-blue-500/30 transition-colors flex items-start gap-4">
+                <span class="text-yellow-300 mono font-bold shrink-0">--default</span>
+                <span class="text-gray-400">Сброс на PyPI (pypi.org/simple/)</span>
+            </div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-4 hover:border-blue-500/30 transition-colors flex items-start gap-4">
+                <span class="text-yellow-300 mono font-bold shrink-0">--show</span>
+                <span class="text-gray-400">Показать текущий index-url и конфиг</span>
+            </div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-4 hover:border-blue-500/30 transition-colors flex items-start gap-4">
+                <span class="text-yellow-300 mono font-bold shrink-0">--list</span>
+                <span class="text-gray-400">История переключений с датами</span>
+            </div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-4 hover:border-blue-500/30 transition-colors flex items-start gap-4">
+                <span class="text-yellow-300 mono font-bold shrink-0">--test</span>
+                <span class="text-gray-400">Тест соединения с текущим зеркалом</span>
+            </div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-4 hover:border-blue-500/30 transition-colors flex items-start gap-4">
+                <span class="text-yellow-300 mono font-bold shrink-0">--backup / --restore</span>
+                <span class="text-gray-400">Бэкап и восстановление pip.conf</span>
+            </div>
+            <div class="terminal-bg rounded-lg border border-gray-800 p-4 hover:border-blue-500/30 transition-colors flex items-start gap-4">
+                <span class="text-yellow-300 mono font-bold shrink-0">tsinghua / aliyun / douban</span>
+                <span class="text-gray-400">Шорткаты для популярных зеркал</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Download All -->
+<section class="max-w-4xl mx-auto px-6 py-16 text-center">
+    <div class="p-10 rounded-3xl bg-gradient-to-br from-amber-900/30 to-orange-900/10 border border-amber-500/20">
+        <div class="text-5xl mb-4">📦</div>
+        <h2 class="text-3xl font-bold mb-3">Скачать всё одним архивом</h2>
+        <p class="text-gray-400 mb-8">Оба пакета в одном ZIP — готовы к pip install</p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <button onclick="downloadAll()" class="glow-amber inline-flex items-center gap-3 px-8 py-4 bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-lg rounded-xl transition-all transform hover:scale-105 cursor-pointer">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Скачать pips.zip (все пакеты)
+            </button>
+        </div>
+        <div id="allStatus" class="mt-4 text-sm"></div>
+        <div class="flex gap-4 justify-center mt-6">
+            <button onclick="downloadBat()" class="px-6 py-3 border border-green-500/30 text-green-400 hover:bg-green-500/10 rounded-xl transition-all cursor-pointer text-sm font-semibold">⚡ termux-bat.zip</button>
+            <button onclick="downloadPip()" class="px-6 py-3 border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 rounded-xl transition-all cursor-pointer text-sm font-semibold">📦 switch-pip.zip</button>
+        </div>
+    </div>
+</section>
+
+</div>
+
+<!-- Footer -->
+<footer class="border-t border-gray-800 py-8 text-center text-gray-500 text-sm">
+    <p>PipCache • termux-bat v2.0.0 • switch-pip v1.0.0 — <a href="index.html" class="text-amber-400 hover:underline">Главная</a></p>
+    <p class="mt-1">Все проекты — папка <code class="text-amber-400/60">pips/</code> • Open Source • MIT License</p>
+</footer>
+
+<script>
+// ===== UI FUNCTIONS =====
+function toggleTree(id) {
+    const el = document.getElementById(id);
+    const icon = document.getElementById(id + '-icon');
+    el.classList.toggle('open');
+    icon.textContent = el.classList.contains('open') ? '▼' : '▶';
+}
+
+function showRef(id) {
+    document.getElementById('ref-bat').classList.add('hidden');
+    document.getElementById('ref-pip').classList.add('hidden');
+    document.getElementById('refBatTab').classList.remove('tab-active');
+    document.getElementById('refBatTab').classList.add('text-gray-400');
+    document.getElementById('refPipTab').classList.remove('tab-active');
+    document.getElementById('refPipTab').classList.add('text-gray-400');
+
+    document.getElementById(id).classList.remove('hidden');
+    if (id === 'ref-bat') {
+        document.getElementById('refBatTab').classList.add('tab-active');
+        document.getElementById('refBatTab').classList.remove('text-gray-400');
+    } else {
+        document.getElementById('refPipTab').classList.add('tab-active');
+        document.getElementById('refPipTab').classList.remove('text-gray-400');
+    }
+}
+
+function filterPackages() {
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    document.querySelectorAll('#packageGrid > div').forEach(card => {
+        const name = card.dataset.name || '';
+        const tags = card.dataset.tags || '';
+        const match = name.includes(q) || tags.includes(q);
+        card.style.display = match ? '' : 'none';
+    });
+}
+
+function copyCmd(text) {
+    navigator.clipboard.writeText(text).catch(() => {});
+}
+
+// ===== ALL FILE CONTENTS =====
+
+const BAT_FILES = {};
+BAT_FILES["pips/termux-bat/setup.py"] = `from setuptools import setup, find_packages
+
+setup(
+    name="termux-bat",
+    version="2.0.0",
+    description="Run .bat (batch) files on Android in Termux - full interpreter",
+    long_description=open("README.md", encoding="utf-8").read(),
+    long_description_content_type="text/markdown",
+    author="termux-bat",
+    license="MIT",
+    packages=find_packages(),
+    python_requires=">=3.7",
+    entry_points={
+        "console_scripts": [
+            "termux-bat=termux_bat.cli:main",
+        ],
+    },
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: POSIX :: Linux",
+    ],
+)
+`;
+
+BAT_FILES["pips/termux-bat/README.md"] = `# termux-bat v2.0.0
+
+Run .bat (batch) files on Android in Termux - full interpreter with 40+ commands.
+
+## Install
+\x60\x60\x60bash
+cd pips/termux-bat
+pip install .
+\x60\x60\x60
+
+## Usage
+\x60\x60\x60bash
+termux-bat script.bat
+termux-bat --help
+termux-bat --version
+\x60\x60\x60
+
+## Supported commands
+echo, set, set /a, set /p, if/else, if exist, if defined,
+goto, call, for, for /l, for /f, for /r, for /d,
+cd, dir, mkdir, rmdir, del, copy, move, ren, type,
+find, findstr, sort, more, cls, pause, choice, exit /b,
+pushd, popd, setlocal, endlocal, timeout, title, color,
+whoami, ver, hostname, where, shift, xcopy, path,
+>, >>, |, 2>nul, & , &&
+
+## License
+MIT
+`;
+
+BAT_FILES["pips/termux-bat/LICENSE"] = `MIT License
+
+Copyright (c) 2025 termux-bat
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+`;
+
+BAT_FILES["pips/termux-bat/termux_bat/__init__.py"] = `"""termux-bat: Run .bat files on Android in Termux."""
+__version__ = "2.0.0"
+`;
+
+BAT_FILES["pips/termux-bat/termux_bat/cli.py"] = `#!/usr/bin/env python3
+"""CLI entry point for termux-bat."""
+import sys, os
+from .interpreter import BatInterpreter
+
+def main():
+    if len(sys.argv) < 2:
+        print("termux-bat v2.0.0 - Full .bat interpreter for Termux")
+        print()
+        print("Usage:")
+        print("  termux-bat <file.bat>         Run batch script")
+        print("  termux-bat --help             Show help")
+        print("  termux-bat --version          Show version")
+        sys.exit(0)
+    arg = sys.argv[1]
+    if arg in ("--help", "-h"):
+        print("termux-bat v2.0.0")
+        print("Full .bat interpreter for Termux on Android.")
+        print()
+        print("Usage: termux-bat <file.bat> [args...]")
+        print("All batch arguments available as %1 %2 etc.")
+        sys.exit(0)
+    if arg in ("--version", "-v"):
+        print("termux-bat 2.0.0")
+        sys.exit(0)
+    filepath = arg
+    if not os.path.isfile(filepath):
+        print(f"[termux-bat] Error: file not found: {filepath}")
+        sys.exit(1)
+    bat_args = sys.argv[2:]
+    interpreter = BatInterpreter(bat_args=bat_args)
+    interpreter.run(filepath)
+
+if __name__ == "__main__":
+    main()
+`;
+
+BAT_FILES["pips/termux-bat/termux_bat/interpreter.py"] = `#!/usr/bin/env python3
+"""
+termux-bat Interpreter v2.0.0
+Full batch (.bat) file interpreter for Linux/Termux.
+Supports 40+ batch commands with Linux translation.
+"""
+import os, sys, re, subprocess, shutil, glob, time, random, datetime
+
+class BatInterpreter:
+    def __init__(self, bat_args=None):
+        self.variables = {}
+        self.echo_on = True
+        self.labels = {}
+        self.lines = []
+        self.current_line = 0
+        self.running = True
+        self.call_stack = []
+        self.dir_stack = []
+        self.env_stack = []
+        self.bat_args = bat_args or []
+        self.delayed_expansion = False
+        self._current_file = ""
+        self.variables["CD"] = os.getcwd()
+        self.variables["DATE"] = ""
+        self.variables["TIME"] = ""
+        self.variables["RANDOM"] = ""
+        self.variables["USERNAME"] = os.environ.get("USER", "termux")
+        self.variables["COMPUTERNAME"] = "TERMUX"
+        self.variables["OS"] = "Android_Termux"
+        self.variables["ERRORLEVEL"] = "0"
+        self.variables["PATH"] = os.environ.get("PATH", "")
+        self.variables["HOME"] = os.environ.get("HOME", "")
+        self.variables["TEMP"] = os.environ.get("TMPDIR", "/tmp")
+        self.variables["TMP"] = os.environ.get("TMPDIR", "/tmp")
+        self.variables["PATHEXT"] = ".COM;.EXE;.BAT;.CMD"
+        self.variables["COMSPEC"] = "/bin/bash"
+        self.variables["SYSTEMROOT"] = "/"
+        self.variables["PROMPT"] = "$P$G"
+        for i, a in enumerate(self.bat_args):
+            self.variables[str(i + 1)] = a
+
+    def expand_variables(self, text):
+        self.variables["CD"] = os.getcwd()
+        now = datetime.datetime.now()
+        self.variables["DATE"] = now.strftime("%d.%m.%Y")
+        self.variables["TIME"] = now.strftime("%H:%M:%S.%f")[:12]
+        self.variables["RANDOM"] = str(random.randint(0, 32767))
+        DQ = chr(34)
+        def replace_var(match):
+            var_name = match.group(1)
+            if var_name.startswith("~") and len(var_name) >= 2:
+                return self._expand_tilde_var(var_name)
+            if ":" in var_name:
+                parts = var_name.split(":", 1)
+                base_name = parts[0].upper()
+                modifier = parts[1]
+                if base_name in self.variables:
+                    base_val = self.variables[base_name]
+                    sub_m = re.match(r"~(-?\\d+)(?:,(-?\\d+))?", modifier)
+                    if sub_m:
+                        offset = int(sub_m.group(1))
+                        length = int(sub_m.group(2)) if sub_m.group(2) else None
+                        if offset < 0:
+                            offset = max(0, len(base_val) + offset)
+                        if length is not None:
+                            if length < 0:
+                                end = max(0, len(base_val) + length)
+                                return base_val[offset:end]
+                            return base_val[offset:offset + length]
+                        return base_val[offset:]
+                    if "=" in modifier:
+                        old, new = modifier.split("=", 1)
+                        return base_val.replace(old, new)
+            upper = var_name.upper()
+            if upper in self.variables:
+                return self.variables[upper]
+            if var_name in self.variables:
+                return self.variables[var_name]
+            env_val = os.environ.get(upper, os.environ.get(var_name, ""))
+            if env_val:
+                return env_val
+            return match.group(0)
+        result = re.sub(r"%([^%]+)%", replace_var, text)
+        if self.delayed_expansion:
+            def replace_delayed(match):
+                vn = match.group(1).upper()
+                if vn in self.variables:
+                    return self.variables[vn]
+                return match.group(0)
+            result = re.sub(r"!([^!]+)!", replace_delayed, result)
+        for i in range(10):
+            key = str(i)
+            if key in self.variables:
+                result = result.replace("%" + key, self.variables[key])
+        return result
+
+    def _expand_tilde_var(self, var_name):
+        rest = var_name[1:]
+        if not rest:
+            return ""
+        num = rest[-1]
+        mods = rest[:-1].lower()
+        val = self.variables.get(num, "")
+        if not val:
+            val = self._current_file
+        if not val:
+            return ""
+        DQ = chr(34)
+        if "f" in mods:
+            return os.path.abspath(val)
+        result = ""
+        if "d" in mods:
+            result += os.path.dirname(os.path.abspath(val))
+        if "p" in mods:
+            d = os.path.dirname(os.path.abspath(val))
+            if not d.endswith(os.sep):
+                d += os.sep
+            result = d
+        if "n" in mods:
+            base = os.path.basename(val)
+            name = os.path.splitext(base)[0]
+            result += name
+        if "x" in mods:
+            base = os.path.basename(val)
+            ext = os.path.splitext(base)[1]
+            result += ext
+        if not mods:
+            result = val.strip(DQ)
+        return result
+
+    def parse_labels(self):
+        for i, line in enumerate(self.lines):
+            stripped = line.strip()
+            if stripped.startswith(":") and not stripped.startswith("::"):
+                label_name = stripped[1:].split()[0].strip().lower() if stripped[1:].strip() else ""
+                if label_name:
+                    self.labels[label_name] = i
+
+    def run(self, filepath):
+        start_time = time.time()
+        try:
+            content = None
+            for enc in ["utf-8", "cp1251", "cp866", "latin-1"]:
+                try:
+                    with open(filepath, "r", encoding=enc) as f:
+                        content = f.read()
+                    break
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+            if content is None:
+                print(f"[termux-bat] Error: cannot read {filepath}")
+                return
+            if content.startswith(chr(65279)):
+                content = content[1:]
+            self.lines = content.splitlines()
+            self._current_file = filepath
+            self.variables["0"] = filepath
+            print(f"[termux-bat] Loading: {filepath}")
+            print(f"[termux-bat] Lines: {len(self.lines)}")
+            self.parse_labels()
+            self.current_line = 0
+            self.running = True
+            while self.current_line < len(self.lines) and self.running:
+                line = self.lines[self.current_line]
+                self.current_line += 1
+                stripped = line.strip()
+                if not stripped or stripped.startswith("::"):
+                    continue
+                self.execute_line(stripped)
+            elapsed = time.time() - start_time
+            print(f"[termux-bat] Done in {elapsed:.2f} sec")
+        except KeyboardInterrupt:
+            print("\\n[termux-bat] Interrupted")
+        except Exception as e:
+            print(f"[termux-bat] Error: {e}")
+
+    def _handle_redirection(self, line):
+        DQ = chr(34)
+        if " | " in line or line.endswith("|"):
+            return None, None, None, True, line
+        redir_append = False
+        redir_file = None
+        clean_line = line
+        m = re.search(r"\\s*>>\\s*(.+)$", line)
+        if m:
+            redir_file = m.group(1).strip().strip(DQ)
+            redir_append = True
+            clean_line = line[:m.start()]
+        else:
+            m = re.search(r"\\s+2>\\s*(.+)$", line)
+            if m:
+                target = m.group(1).strip().strip(DQ)
+                clean_line = line[:m.start()]
+                if target.lower() in ("nul", "/dev/null"):
+                    return clean_line, None, None, False, None
+            else:
+                m = re.search(r"\\s*(?:^|[^>])>\\s*(?!>|=)(.+)$", line)
+                if m:
+                    redir_file = m.group(1).strip().strip(DQ)
+                    redir_append = False
+                    idx = line.rfind(">")
+                    clean_line = line[:idx].rstrip()
+        if redir_file and redir_file.lower() in ("nul", "/dev/null"):
+            return clean_line, "/dev/null", False, False, None
+        return clean_line, redir_file, redir_append, False, None
+
+    def execute_line(self, line):
+        suppress = False
+        if line.startswith("@"):
+            suppress = True
+            line = line[1:].strip()
+        if not line:
+            return
+        if " & " in line:
+            parts = line.split(" & ")
+            for part in parts:
+                self.execute_line(part.strip())
+            return
+        if " && " in line:
+            parts = line.split(" && ")
+            for part in parts:
+                self.execute_line(part.strip())
+                if self.variables.get("ERRORLEVEL", "0") != "0":
+                    break
+            return
+        clean, redir_file, redir_append, is_pipe, pipe_cmd = self._handle_redirection(line)
+        if is_pipe:
+            expanded = self.expand_variables(pipe_cmd)
+            try:
+                result = subprocess.run(expanded, shell=True)
+                self.variables["ERRORLEVEL"] = str(result.returncode)
+            except Exception as e:
+                print(f"Error: {e}")
+                self.variables["ERRORLEVEL"] = "1"
+            return
+        if redir_file and redir_file != "/dev/null":
+            import io
+            old_stdout = sys.stdout
+            sys.stdout = io.StringIO()
+            try:
+                self._execute_command(clean)
+                output = sys.stdout.getvalue()
+            finally:
+                sys.stdout = old_stdout
+            mode = "a" if redir_append else "w"
+            redir_exp = self.expand_variables(redir_file)
+            try:
+                with open(redir_exp, mode) as f:
+                    f.write(output)
+            except Exception as e:
+                print(f"Error writing to {redir_exp}: {e}")
+            return
+        if redir_file == "/dev/null":
+            import io
+            old_stdout = sys.stdout
+            sys.stdout = io.StringIO()
+            try:
+                self._execute_command(clean)
+            finally:
+                sys.stdout = old_stdout
+            return
+        self._execute_command(clean if clean else line)
+
+    def _execute_command(self, line):
+        DQ = chr(34)
+        BS = chr(92)
+        line_expanded = self.expand_variables(line)
+        lower = line_expanded.lower().strip()
+        if not lower:
+            return
+        if lower.startswith(":") and not lower.startswith("::"):
+            return
+        if lower.startswith("rem ") or lower == "rem":
+            return
+        if lower == "echo off":
+            self.echo_on = False
+            return
+        if lower == "echo on":
+            self.echo_on = True
+            return
+        if re.match(r"^echo[./:\\\\\\\\(]$", lower):
+            print()
+            return
+        if lower.startswith("echo "):
+            text = line_expanded[5:]
+            print(text)
+            return
+        if lower == "echo":
+            status = "ON" if self.echo_on else "OFF"
+            print(f"ECHO is {status}")
+            return
+        if lower.startswith("set /a "):
+            self._handle_set_a(line_expanded[7:])
+            return
+        if lower.startswith("set /p "):
+            rest = line_expanded[7:].strip()
+            if "=" in rest:
+                var_name, prompt_text = rest.split("=", 1)
+                var_name = var_name.strip().upper()
+                try:
+                    value = input(prompt_text)
+                except EOFError:
+                    value = ""
+                self.variables[var_name] = value
+            return
+        if lower.startswith("set "):
+            rest = line_expanded[4:].strip()
+            if "=" in rest:
+                var_name, value = rest.split("=", 1)
+                var_name = var_name.strip().upper()
+                value = value.strip()
+                if len(value) >= 2 and value[0] == DQ and value[-1] == DQ:
+                    value = value[1:-1]
+                self.variables[var_name] = value
+            else:
+                prefix = rest.upper()
+                for k, v in sorted(self.variables.items()):
+                    if k.startswith(prefix):
+                        print(f"{k}={v}")
+            return
+        if lower == "set":
+            for k, v in sorted(self.variables.items()):
+                print(f"{k}={v}")
+            return
+        if lower.startswith("if "):
+            self._handle_if(line_expanded)
+            return
+        if lower.startswith("for "):
+            self._handle_for(line_expanded)
+            return
+        if lower.startswith("goto "):
+            label = line_expanded[5:].strip().lower().strip(":")
+            if label == "eof":
+                if self.call_stack:
+                    self.current_line = self.call_stack.pop()
+                else:
+                    self.running = False
+                return
+            if label in self.labels:
+                self.current_line = self.labels[label] + 1
+            else:
+                print(f"[termux-bat] Error: label :{label} not found")
+                self.running = False
+            return
+        if lower.startswith("call "):
+            target = line_expanded[5:].strip()
+            if target.startswith(":"):
+                parts = target[1:].split(None, 1)
+                label = parts[0].lower()
+                if len(parts) > 1:
+                    call_args = parts[1].split()
+                    for ci, ca in enumerate(call_args):
+                        self.variables[str(ci + 1)] = ca.strip(DQ)
+                if label in self.labels:
+                    self.call_stack.append(self.current_line)
+                    self.current_line = self.labels[label] + 1
+                else:
+                    print(f"[termux-bat] Error: label :{label} not found")
+            else:
+                parts = target.split()
+                bat_file = parts[0].strip(DQ)
+                if os.path.isfile(bat_file):
+                    sub_args = parts[1:] if len(parts) > 1 else []
+                    sub = BatInterpreter(bat_args=sub_args)
+                    sub.variables = dict(self.variables)
+                    sub.run(bat_file)
+                    for k, v in sub.variables.items():
+                        self.variables[k] = v
+                else:
+                    print(f"[termux-bat] Error: file not found: {bat_file}")
+            return
+        if lower == "exit" or lower.startswith("exit "):
+            exit_code = "0"
+            if lower.startswith("exit /b"):
+                rest = line_expanded[7:].strip()
+                if rest:
+                    exit_code = rest.strip()
+                self.variables["ERRORLEVEL"] = exit_code
+                if self.call_stack:
+                    self.current_line = self.call_stack.pop()
+                    return
+            elif lower.startswith("exit "):
+                rest = line_expanded[5:].strip()
+                if rest.lstrip("-").isdigit():
+                    exit_code = rest
+            self.variables["ERRORLEVEL"] = exit_code
+            self.running = False
+            return
+        if lower.startswith("cd ") or lower.startswith("chdir ") or lower in ("cd", "chdir"):
+            if lower in ("cd", "chdir"):
+                print(os.getcwd())
+            else:
+                cmd_len = 3 if lower.startswith("cd ") else 6
+                path = line_expanded[cmd_len:].strip()
+                if path.lower().startswith("/d "):
+                    path = path[3:].strip()
+                path = path.strip(DQ).replace(BS, "/")
+                try:
+                    os.chdir(path)
+                    self.variables["CD"] = os.getcwd()
+                except Exception as e:
+                    print(f"Error: {e}")
+                    self.variables["ERRORLEVEL"] = "1"
+            return
+        if lower.startswith("pushd ") or lower == "pushd":
+            if lower == "pushd":
+                print(os.getcwd())
+            else:
+                path = line_expanded[6:].strip().strip(DQ).replace(BS, "/")
+                self.dir_stack.append(os.getcwd())
+                try:
+                    os.chdir(path)
+                    self.variables["CD"] = os.getcwd()
+                except Exception as e:
+                    print(f"Error: {e}")
+                    self.dir_stack.pop()
+            return
+        if lower == "popd":
+            if self.dir_stack:
+                path = self.dir_stack.pop()
+                try:
+                    os.chdir(path)
+                    self.variables["CD"] = os.getcwd()
+                except Exception as e:
+                    print(f"Error: {e}")
+            return
+        if lower == "setlocal" or lower.startswith("setlocal "):
+            self.env_stack.append(dict(self.variables))
+            if "enabledelayedexpansion" in lower:
+                self.delayed_expansion = True
+            return
+        if lower == "endlocal" or lower.startswith("endlocal "):
+            if self.env_stack:
+                self.variables = self.env_stack.pop()
+            self.delayed_expansion = False
+            return
+        if lower == "dir" or lower.startswith("dir "):
+            self._handle_dir(line_expanded)
+            return
+        if lower.startswith("mkdir ") or lower.startswith("md "):
+            cmd = "mkdir" if lower.startswith("mkdir") else "md"
+            path = line_expanded[len(cmd)+1:].strip().strip(DQ).replace(BS, "/")
+            try:
+                os.makedirs(path, exist_ok=True)
+            except Exception as e:
+                print(f"Error: {e}")
+                self.variables["ERRORLEVEL"] = "1"
+            return
+        if lower.startswith("rmdir ") or lower.startswith("rd "):
+            cmd = "rmdir" if lower.startswith("rmdir") else "rd"
+            rest = line_expanded[len(cmd)+1:].strip()
+            recursive = "/s" in rest.lower()
+            parts = rest.split()
+            clean = [p for p in parts if not p.startswith("/")]
+            path = " ".join(clean).strip(DQ).replace(BS, "/")
+            try:
+                if recursive:
+                    shutil.rmtree(path)
+                else:
+                    os.rmdir(path)
+            except Exception as e:
+                print(f"Error: {e}")
+                self.variables["ERRORLEVEL"] = "1"
+            return
+        if lower.startswith("del ") or lower.startswith("erase "):
+            cmd = "del" if lower.startswith("del") else "erase"
+            rest = line_expanded[len(cmd)+1:].strip()
+            parts = rest.split()
+            clean = [p for p in parts if not p.startswith("/")]
+            path = " ".join(clean).strip(DQ).replace(BS, "/")
+            try:
+                if os.path.isfile(path):
+                    os.remove(path)
+                elif os.path.isdir(path):
+                    shutil.rmtree(path)
+                else:
+                    files = glob.glob(path)
+                    if files:
+                        for f in files:
+                            if os.path.isfile(f):
+                                os.remove(f)
+                    else:
+                        print(f"File not found: {path}")
+                        self.variables["ERRORLEVEL"] = "1"
+            except Exception as e:
+                print(f"Error: {e}")
+                self.variables["ERRORLEVEL"] = "1"
+            return
+        if lower.startswith("copy "):
+            rest = line_expanded[5:].strip()
+            parts = rest.split()
+            clean = [p for p in parts if not p.startswith("/")]
+            if len(clean) >= 2:
+                src = clean[0].strip(DQ).replace(BS, "/")
+                dst = clean[1].strip(DQ).replace(BS, "/")
+                try:
+                    src_files = glob.glob(src) or [src]
+                    for sf in src_files:
+                        shutil.copy2(sf, dst)
+                    print(f"        {len(src_files)} file(s) copied.")
+                except Exception as e:
+                    print(f"Error: {e}")
+                    self.variables["ERRORLEVEL"] = "1"
+            return
+        if lower.startswith("xcopy "):
+            rest = line_expanded[6:].strip()
+            parts = rest.split()
+            clean = [p for p in parts if not p.startswith("/")]
+            if len(clean) >= 2:
+                src = clean[0].strip(DQ).replace(BS, "/")
+                dst = clean[1].strip(DQ).replace(BS, "/")
+                try:
+                    if os.path.isdir(src):
+                        shutil.copytree(src, dst, dirs_exist_ok=True)
+                    else:
+                        os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
+                        shutil.copy2(src, dst)
+                except Exception as e:
+                    print(f"Error: {e}")
+                    self.variables["ERRORLEVEL"] = "1"
+            return
+        if lower.startswith("move "):
+            rest = line_expanded[5:].strip()
+            parts = rest.split()
+            clean = [p for p in parts if not p.startswith("/")]
+            if len(clean) >= 2:
+                src = clean[0].strip(DQ).replace(BS, "/")
+                dst = clean[1].strip(DQ).replace(BS, "/")
+                try:
+                    shutil.move(src, dst)
+                except Exception as e:
+                    print(f"Error: {e}")
+                    self.variables["ERRORLEVEL"] = "1"
+            return
+        if lower.startswith("ren ") or lower.startswith("rename "):
+            cmd = "ren" if lower.startswith("ren ") else "rename"
+            rest = line_expanded[len(cmd)+1:].strip()
+            parts = rest.split()
+            if len(parts) >= 2:
+                try:
+                    os.rename(parts[0], parts[1])
+                except Exception as e:
+                    print(f"Error: {e}")
+                    self.variables["ERRORLEVEL"] = "1"
+            return
+        if lower.startswith("type "):
+            path = line_expanded[5:].strip().strip(DQ).replace(BS, "/")
+            try:
+                with open(path, "r", errors="replace") as f:
+                    print(f.read(), end="")
+            except Exception as e:
+                print(f"Error: {e}")
+                self.variables["ERRORLEVEL"] = "1"
+            return
+        if lower.startswith("find "):
+            self._handle_find(line_expanded[5:].strip())
+            return
+        if lower.startswith("findstr "):
+            self._handle_findstr(line_expanded[8:].strip())
+            return
+        if lower == "sort" or lower.startswith("sort "):
+            self._handle_sort(line_expanded)
+            return
+        if lower.startswith("more ") or lower == "more":
+            if lower == "more":
+                try:
+                    for li in sys.stdin:
+                        print(li, end="")
+                except EOFError:
+                    pass
+            else:
+                path = line_expanded[5:].strip().strip(DQ).replace(BS, "/")
+                try:
+                    with open(path, "r", errors="replace") as f:
+                        flines = f.readlines()
+                        for i, l in enumerate(flines):
+                            print(l, end="")
+                            if (i+1) % 24 == 0 and i+1 < len(flines):
+                                try:
+                                    input("-- More --")
+                                except EOFError:
+                                    break
+                except Exception as e:
+                    print(f"Error: {e}")
+            return
+        if lower == "cls":
+            os.system("clear")
+            return
+        if lower == "pause":
+            try:
+                input("Press Enter to continue...")
+            except EOFError:
+                pass
+            return
+        if lower.startswith("choice") and (lower == "choice" or len(lower) > 6 and lower[6] in " /"):
+            self._handle_choice(line_expanded)
+            return
+        if lower.startswith("title "):
+            title = line_expanded[6:].strip()
+            sys.stdout.write("\\033]0;" + title + "\\007")
+            sys.stdout.flush()
+            return
+        if lower.startswith("color ") or lower == "color":
+            return
+        if lower == "ver":
+            print("termux-bat v2.0.0 [Android/Termux]")
+            return
+        if lower == "whoami":
+            print(os.environ.get("USER", "termux"))
+            return
+        if lower == "hostname":
+            try:
+                import socket
+                print(socket.gethostname())
+            except Exception:
+                print("TERMUX")
+            return
+        if lower.startswith("where "):
+            prog = line_expanded[6:].strip()
+            found = shutil.which(prog)
+            if found:
+                print(found)
+            else:
+                print(f"INFO: Could not find: {prog}")
+                self.variables["ERRORLEVEL"] = "1"
+            return
+        if lower == "shift" or lower.startswith("shift "):
+            start = 1
+            m = re.search(r"/([0-9])", lower)
+            if m:
+                start = int(m.group(1))
+            i = start
+            while True:
+                next_key = str(i + 1)
+                this_key = str(i)
+                if next_key in self.variables:
+                    self.variables[this_key] = self.variables[next_key]
+                    i += 1
+                else:
+                    if this_key in self.variables:
+                        del self.variables[this_key]
+                    break
+            return
+        if lower.startswith("timeout "):
+            m = re.search(r"(\\d+)", lower)
+            if m:
+                secs = int(m.group(1))
+                print(f"Waiting {secs} seconds...")
+                try:
+                    time.sleep(secs)
+                except KeyboardInterrupt:
+                    pass
+            return
+        if lower.startswith("ping "):
+            if "localhost" in lower or "127.0.0.1" in lower:
+                m = re.search(r"-n\\s+(\\d+)", lower)
+                if m:
+                    count = int(m.group(1))
+                    time.sleep(max(count - 1, 1))
+                return
+            os.system(line_expanded)
+            return
+        if lower == "path":
+            print(f"PATH={self.variables.get('PATH', os.environ.get('PATH', ''))}")
+            return
+        if lower.startswith("path "):
+            self.variables["PATH"] = line_expanded[5:].strip()
+            return
+        try:
+            result = subprocess.run(line_expanded, shell=True)
+            self.variables["ERRORLEVEL"] = str(result.returncode)
+        except Exception as e:
+            print(f"[termux-bat] Exec error: {e}")
+            self.variables["ERRORLEVEL"] = "1"
+
+    def _handle_set_a(self, expr):
+        expr = expr.strip()
+        assign_var = None
+        DQ = chr(34)
+        if "=" in expr and "==" not in expr:
+            eq_idx = expr.index("=")
+            before_eq = expr[:eq_idx]
+            after_eq = expr[eq_idx+1:]
+            if before_eq.endswith("+"):
+                assign_var = before_eq[:-1].strip().upper()
+                old_val = int(self.variables.get(assign_var, "0") or "0")
+                expr = f"{old_val}+({after_eq})"
+            elif before_eq.endswith("-"):
+                assign_var = before_eq[:-1].strip().upper()
+                old_val = int(self.variables.get(assign_var, "0") or "0")
+                expr = f"{old_val}-({after_eq})"
+            elif before_eq.endswith("*"):
+                assign_var = before_eq[:-1].strip().upper()
+                old_val = int(self.variables.get(assign_var, "0") or "0")
+                expr = f"{old_val}*({after_eq})"
+            elif before_eq.endswith("/"):
+                assign_var = before_eq[:-1].strip().upper()
+                old_val = int(self.variables.get(assign_var, "0") or "0")
+                expr = f"{old_val}//({after_eq})"
+            else:
+                assign_var = before_eq.strip().upper()
+                expr = after_eq
+        def repl_var(m):
+            vn = m.group(1).upper()
+            return self.variables.get(vn, "0")
+        expr = re.sub(r"%([^%]+)%", repl_var, expr)
+        expr = re.sub(r"!([^!]+)!", repl_var, expr)
+        tokens = re.split(r"([+\\-*/%()&|^~<>!,\\s]+)", expr)
+        resolved = []
+        for tok in tokens:
+            stripped = tok.strip()
+            if stripped and stripped.isalpha():
+                val = self.variables.get(stripped.upper(), None)
+                if val is not None and (val.lstrip("-").isdigit() or val == ""):
+                    resolved.append(val if val else "0")
+                else:
+                    resolved.append(tok)
+            else:
+                resolved.append(tok)
+        expr = "".join(resolved)
+        expr = expr.replace("%%", "%").strip()
+        if DQ in expr:
+            expr = expr.replace(DQ, "")
+        try:
+            result = int(eval(expr))
+            if assign_var:
+                self.variables[assign_var] = str(result)
+            else:
+                print(result)
+        except Exception as e:
+            print(f"Arithmetic error: {e}")
+            self.variables["ERRORLEVEL"] = "1"
+
+    def _handle_if(self, line):
+        DQ = chr(34)
+        rest = line[3:].strip()
+        case_insensitive = False
+        if rest.lower().startswith("/i "):
+            case_insensitive = True
+            rest = rest[3:].strip()
+        negate = False
+        if rest.lower().startswith("not "):
+            negate = True
+            rest = rest[4:].strip()
+        condition_met = False
+        command = ""
+        if rest.lower().startswith("exist "):
+            rest = rest[6:].strip()
+            if rest.startswith(DQ):
+                try:
+                    end_q = rest.index(DQ, 1)
+                    path = rest[1:end_q]
+                    command = rest[end_q+1:].strip()
+                except ValueError:
+                    path = rest.strip(DQ)
+                    command = ""
+            else:
+                parts = rest.split(None, 1)
+                path = parts[0]
+                command = parts[1] if len(parts) > 1 else ""
+            path = path.replace(chr(92), "/")
+            condition_met = os.path.exists(path)
+        elif rest.lower().startswith("errorlevel "):
+            rest = rest[11:].strip()
+            parts = rest.split(None, 1)
+            try:
+                level = int(parts[0])
+            except ValueError:
+                level = 0
+            command = parts[1] if len(parts) > 1 else ""
+            current = int(self.variables.get("ERRORLEVEL", "0") or "0")
+            condition_met = current >= level
+        elif rest.lower().startswith("defined "):
+            rest = rest[8:].strip()
+            parts = rest.split(None, 1)
+            var_name = parts[0].upper()
+            command = parts[1] if len(parts) > 1 else ""
+            condition_met = var_name in self.variables and self.variables[var_name] != ""
+        elif "==" in rest:
+            m = re.match(r"(.+?)\\s*==\\s*(\\S+)\\s*(.*)", rest)
+            if m:
+                left = m.group(1).strip().strip(DQ)
+                right = m.group(2).strip().strip(DQ)
+                command = m.group(3).strip()
+                if case_insensitive:
+                    condition_met = left.lower() == right.lower()
+                else:
+                    condition_met = left == right
+        else:
+            ops = {"equ": "==", "neq": "!=", "lss": "<", "leq": "<=", "gtr": ">", "geq": ">="}
+            found_op = False
+            for op_name, op_sym in ops.items():
+                pattern = r"(\\S+)\\s+" + op_name + r"\\s+(\\S+)\\s*(.*)"
+                m = re.match(pattern, rest, re.IGNORECASE)
+                if m:
+                    left_s = m.group(1).strip(DQ)
+                    right_s = m.group(2).strip(DQ)
+                    command = m.group(3).strip()
+                    try:
+                        left_n = int(left_s)
+                        right_n = int(right_s)
+                        if op_sym == "==": condition_met = left_n == right_n
+                        elif op_sym == "!=": condition_met = left_n != right_n
+                        elif op_sym == "<": condition_met = left_n < right_n
+                        elif op_sym == "<=": condition_met = left_n <= right_n
+                        elif op_sym == ">": condition_met = left_n > right_n
+                        elif op_sym == ">=": condition_met = left_n >= right_n
+                    except ValueError:
+                        if case_insensitive:
+                            left_s = left_s.lower()
+                            right_s = right_s.lower()
+                        if op_sym == "==": condition_met = left_s == right_s
+                        elif op_sym == "!=": condition_met = left_s != right_s
+                        else: condition_met = False
+                    found_op = True
+                    break
+            if not found_op:
+                return
+        if negate:
+            condition_met = not condition_met
+        else_command = ""
+        lower_cmd = command.lower()
+        paren_depth = 0
+        else_idx = -1
+        i = 0
+        while i < len(command) - 5:
+            if command[i] == "(": paren_depth += 1
+            elif command[i] == ")": paren_depth -= 1
+            elif paren_depth == 0 and lower_cmd[i:i+6] == " else ":
+                else_idx = i
+                break
+            i += 1
+        if else_idx >= 0:
+            else_command = command[else_idx+6:].strip()
+            command = command[:else_idx].strip()
+        def clean_parens(s):
+            s = s.strip()
+            if s.startswith("("): s = s[1:]
+            if s.endswith(")"): s = s[:-1]
+            return s.strip()
+        command = clean_parens(command)
+        else_command = clean_parens(else_command)
+        if condition_met and command:
+            self.execute_line(command)
+        elif not condition_met and else_command:
+            self.execute_line(else_command)
+
+    def _handle_for(self, line):
+        DQ = chr(34)
+        SQ = chr(39)
+        BS = chr(92)
+        rest = line[4:].strip()
+        variant = "basic"
+        options = ""
+        if rest.lower().startswith("/l "):
+            variant = "numeric"
+            rest = rest[3:].strip()
+        elif rest.lower().startswith("/f "):
+            variant = "parse"
+            rest = rest[3:].strip()
+            if rest.startswith(DQ):
+                try:
+                    end_q = rest.index(DQ, 1)
+                    options = rest[1:end_q]
+                    rest = rest[end_q+1:].strip()
+                except ValueError:
+                    pass
+        elif rest.lower().startswith("/r "):
+            variant = "recursive"
+            rest = rest[3:].strip()
+        elif rest.lower().startswith("/d "):
+            variant = "dirs"
+            rest = rest[3:].strip()
+        m = re.match(r"%%?(\\w)\\s+in\\s+\\((.+?)\\)\\s+do\\s+(.+)", rest, re.IGNORECASE | re.DOTALL)
+        if not m:
+            m = re.match(r"%(\\w)\\s+in\\s+\\((.+?)\\)\\s+do\\s+(.+)", rest, re.IGNORECASE | re.DOTALL)
+        if not m:
+            print("[termux-bat] FOR syntax error")
+            return
+        var_char = m.group(1)
+        set_part = m.group(2).strip()
+        cmd_template = m.group(3).strip()
+        items = []
+        if variant == "numeric":
+            parts = re.split(r"[,\\s]+", set_part)
+            if len(parts) >= 3:
+                try:
+                    start = int(self.expand_variables(parts[0]))
+                    step = int(self.expand_variables(parts[1]))
+                    end = int(self.expand_variables(parts[2]))
+                    if step > 0:
+                        items = [str(x) for x in range(start, end+1, step)]
+                    elif step < 0:
+                        items = [str(x) for x in range(start, end-1, step)]
+                except ValueError:
+                    pass
+        elif variant == "parse":
+            expanded_set = self.expand_variables(set_part)
+            if expanded_set.startswith(SQ) and expanded_set.endswith(SQ):
+                cmd = expanded_set[1:-1]
+                try:
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                    items = result.stdout.strip().splitlines()
+                except Exception:
+                    items = []
+            elif expanded_set.startswith(chr(96)) and expanded_set.endswith(chr(96)):
+                cmd = expanded_set[1:-1]
+                try:
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                    items = result.stdout.strip().splitlines()
+                except Exception:
+                    items = []
+            else:
+                fpath = expanded_set.strip(DQ).replace(BS, "/")
+                if os.path.isfile(fpath):
+                    try:
+                        with open(fpath, "r", errors="replace") as f:
+                            items = f.read().strip().splitlines()
+                    except Exception:
+                        items = []
+                else:
+                    items = expanded_set.split()
+            if options:
+                delims = " "
+                for opt in options.split():
+                    if opt.startswith("delims="):
+                        delims = opt[7:] if len(opt) > 7 else ""
+                    elif opt.startswith("skip="):
+                        try:
+                            skip_n = int(opt[5:])
+                            items = items[skip_n:]
+                        except ValueError:
+                            pass
+                processed = []
+                for item in items:
+                    if not item.strip():
+                        continue
+                    if delims:
+                        parts_list = re.split("[" + re.escape(delims) + "]+", item)
+                    else:
+                        parts_list = [item]
+                    if parts_list:
+                        processed.append(parts_list[0])
+                items = processed
+        elif variant == "recursive":
+            root_dir = "."
+            pattern = set_part
+            if " " in set_part:
+                rd, pattern = set_part.rsplit(" ", 1)
+                root_dir = rd.replace(BS, "/")
+            for dirpath, dirnames, filenames in os.walk(root_dir):
+                for fn in filenames:
+                    import fnmatch as fnm
+                    if fnm.fnmatch(fn, pattern):
+                        items.append(os.path.join(dirpath, fn))
+        elif variant == "dirs":
+            expanded_set = self.expand_variables(set_part)
+            pattern = expanded_set.replace(BS, "/")
+            try:
+                matches = glob.glob(pattern)
+                items = [m_item for m_item in matches if os.path.isdir(m_item)]
+            except Exception:
+                items = []
+        else:
+            expanded_set = self.expand_variables(set_part)
+            raw_items = expanded_set.split()
+            for ri in raw_items:
+                ri = ri.replace(BS, "/")
+                if "*" in ri or "?" in ri:
+                    matched = glob.glob(ri)
+                    items.extend(sorted(matched))
+                else:
+                    items.append(ri)
+        for item in items:
+            cmd = cmd_template
+            cmd = cmd.replace("%%" + var_char, item)
+            cmd = cmd.replace("%" + var_char, item)
+            self.execute_line(cmd)
+
+    def _handle_dir(self, line_expanded):
+        DQ = chr(34)
+        BS = chr(92)
+        lower = line_expanded.lower().strip()
+        path = "."
+        if lower.startswith("dir "):
+            rest = line_expanded[4:].strip()
+            parts = rest.split()
+            clean = [p for p in parts if not p.startswith("/")]
+            if clean:
+                path = " ".join(clean).strip(DQ).replace(BS, "/")
+        try:
+            if "*" in path or "?" in path:
+                entries = glob.glob(path)
+                for entry in sorted(entries):
+                    name = os.path.basename(entry)
+                    if os.path.isdir(entry):
+                        print(f"  <DIR>          {name}")
+                    else:
+                        sz = os.path.getsize(entry)
+                        print(f"  {sz:>14,}  {name}")
+                print(f"               {len(entries)} File(s)")
+            else:
+                entries = os.listdir(path)
+                total_size = 0
+                dirs_count = 0
+                files_count = 0
+                print(f" Directory of {os.path.abspath(path)}")
+                print()
+                for entry in sorted(entries):
+                    full = os.path.join(path, entry)
+                    mtime = os.path.getmtime(full)
+                    dt = datetime.datetime.fromtimestamp(mtime)
+                    date_str = dt.strftime("%d.%m.%Y  %H:%M")
+                    if os.path.isdir(full):
+                        print(f"{date_str}    <DIR>          {entry}")
+                        dirs_count += 1
+                    else:
+                        sz = os.path.getsize(full)
+                        total_size += sz
+                        print(f"{date_str}    {sz:>14,} {entry}")
+                        files_count += 1
+                print(f"               {files_count} File(s)  {total_size:,} bytes")
+                print(f"               {dirs_count} Dir(s)")
+        except Exception as e:
+            print(f"Error: {e}")
+            self.variables["ERRORLEVEL"] = "1"
+
+    def _handle_find(self, args):
+        DQ = chr(34)
+        BS = chr(92)
+        case_i = False
+        count_only = False
+        show_nums = False
+        neg = False
+        parts = args.split()
+        search_str = ""
+        files = []
+        i = 0
+        while i < len(parts):
+            p = parts[i]
+            if p.upper() == "/I": case_i = True
+            elif p.upper() == "/C": count_only = True
+            elif p.upper() == "/N": show_nums = True
+            elif p.upper() == "/V": neg = True
+            elif p.startswith(DQ):
+                s = p[1:]
+                while i+1 < len(parts) and not s.endswith(DQ):
+                    i += 1
+                    s += " " + parts[i]
+                if s.endswith(DQ): s = s[:-1]
+                search_str = s
+            else:
+                files.append(p.replace(BS, "/"))
+            i += 1
+        for fpath in files:
+            try:
+                with open(fpath, "r", errors="replace") as f:
+                    file_lines = f.readlines()
+                count = 0
+                print(f"---------- {fpath}")
+                for n, fl in enumerate(file_lines, 1):
+                    match = search_str.lower() in fl.lower() if case_i else search_str in fl
+                    if neg: match = not match
+                    if match:
+                        count += 1
+                        if not count_only:
+                            if show_nums:
+                                print(f"[{n}]{fl}", end="")
+                            else:
+                                print(fl, end="")
+                if count_only:
+                    print(f"---------- {fpath}: {count}")
+            except Exception as e:
+                print(f"Error: {e}")
+
+    def _handle_findstr(self, args):
+        DQ = chr(34)
+        BS = chr(92)
+        parts = args.split()
+        pattern = ""
+        files = []
+        use_regex = True
+        case_i = False
+        i = 0
+        while i < len(parts):
+            p = parts[i]
+            if p.upper() == "/I": case_i = True
+            elif p.upper() == "/R": use_regex = True
+            elif p.upper() == "/L": use_regex = False
+            elif p.startswith("/"): pass
+            elif not pattern:
+                if p.startswith(DQ):
+                    s = p[1:]
+                    while i+1 < len(parts) and not s.endswith(DQ):
+                        i += 1
+                        s += " " + parts[i]
+                    if s.endswith(DQ): s = s[:-1]
+                    pattern = s
+                else:
+                    pattern = p
+            else:
+                files.append(p.replace(BS, "/"))
+            i += 1
+        flags = re.IGNORECASE if case_i else 0
+        for fpath in files:
+            try:
+                with open(fpath, "r", errors="replace") as f:
+                    for fl in f:
+                        if use_regex:
+                            if re.search(pattern, fl, flags):
+                                prefix = f"{fpath}:" if len(files) > 1 else ""
+                                print(f"{prefix}{fl}", end="")
+                        else:
+                            target = fl.lower() if case_i else fl
+                            search = pattern.lower() if case_i else pattern
+                            if search in target:
+                                prefix = f"{fpath}:" if len(files) > 1 else ""
+                                print(f"{prefix}{fl}", end="")
+            except Exception as e:
+                print(f"Error: {e}")
+
+    def _handle_sort(self, line_expanded):
+        DQ = chr(34)
+        BS = chr(92)
+        lower = line_expanded.lower().strip()
+        reverse = "/r" in lower
+        parts = line_expanded.split()
+        clean = [p for p in parts[1:] if not p.startswith("/")]
+        if clean:
+            fpath = clean[0].strip(DQ).replace(BS, "/")
+            try:
+                with open(fpath, "r", errors="replace") as f:
+                    lines = f.readlines()
+                lines.sort(reverse=reverse)
+                for l in lines:
+                    print(l, end="")
+            except Exception as e:
+                print(f"Error: {e}")
+        return
+
+    def _handle_choice(self, line_expanded):
+        DQ = chr(34)
+        choices = "YN"
+        prompt = ""
+        m = re.search(r"/[cC]:?(\\S+)", line_expanded)
+        if m:
+            choices = m.group(1).upper()
+        m = re.search(r"/[mM]:?(.+?)(?:\\s+/|$)", line_expanded)
+        if m:
+            prompt = m.group(1).strip()
+        choice_list = ",".join(list(choices))
+        while True:
+            try:
+                ans = input(f"{prompt} [{choice_list}]? ")
+                if ans and ans[0].upper() in choices:
+                    idx = choices.index(ans[0].upper()) + 1
+                    self.variables["ERRORLEVEL"] = str(idx)
+                    return
+            except EOFError:
+                self.variables["ERRORLEVEL"] = "1"
+                return
+`;
+
+BAT_FILES["pips/termux-bat/examples/hello.bat"] = `@echo off
+echo ================================
+echo   Hello from BAT on Android!
+echo ================================
+echo.
+echo Current dir: %CD%
+echo User: %USERNAME%
+echo Date: %DATE%
+echo Time: %TIME%
+echo OS: %OS%
+echo.
+echo This .bat file is running in Termux!
+echo Powered by termux-bat v2.0 interpreter.
+echo.
+dir
+echo.
+echo Done!
+`;
+
+BAT_FILES["pips/termux-bat/examples/menu.bat"] = `@echo off
+title termux-bat Menu Demo
+:menu
+echo.
+echo === Main Menu ===
+echo 1. Show date and time
+echo 2. Show files
+echo 3. Create test folder
+echo 4. Calculator (set /a)
+echo 5. Exit
+echo.
+set /p CHOICE=Your choice:
+if "%CHOICE%"=="1" goto showdate
+if "%CHOICE%"=="2" goto showfiles
+if "%CHOICE%"=="3" goto makedir
+if "%CHOICE%"=="4" goto calc
+if "%CHOICE%"=="5" goto quit
+echo Invalid choice!
+goto menu
+:showdate
+echo.
+echo Date: %DATE%
+echo Time: %TIME%
+goto menu
+:showfiles
+echo.
+dir
+goto menu
+:makedir
+echo.
+set /p DIRNAME=Folder name:
+mkdir %DIRNAME%
+echo Folder created!
+goto menu
+:calc
+echo.
+set /p NUM1=First number:
+set /p NUM2=Second number:
+set /a RESULT=%NUM1%+%NUM2%
+echo %NUM1% + %NUM2% = %RESULT%
+goto menu
+:quit
+echo Goodbye!
+exit
+`;
+
+BAT_FILES["pips/termux-bat/examples/files.bat"] = `@echo off
+echo === File Operations Test ===
+echo.
+echo Creating folder test_dir...
+mkdir test_dir
+cd test_dir
+echo Hello from termux-bat! > hello.txt
+echo Second line >> hello.txt
+echo.
+echo File contents:
+type hello.txt
+echo.
+echo Listing:
+dir
+echo.
+echo Cleaning up...
+del hello.txt
+cd ..
+rmdir test_dir
+echo Done!
+`;
+
+BAT_FILES["pips/termux-bat/examples/loops.bat"] = `@echo off
+echo === FOR Loop Examples ===
+echo.
+echo --- Counting 1 to 10 ---
+for /l %%i in (1,1,10) do echo %%i
+echo.
+echo --- Sum 1 to 10 ---
+set /a SUM=0
+for /l %%i in (1,1,10) do set /a SUM+=%%i
+echo Sum = %SUM%
+echo.
+echo --- Even numbers ---
+for /l %%i in (2,2,20) do echo %%i
+echo.
+echo --- Countdown ---
+for /l %%i in (5,-1,1) do echo %%i...
+echo Go!
+echo.
+echo --- List ---
+for %%x in (apple banana cherry) do echo Fruit: %%x
+echo.
+echo === Done ===
+`;
+
+BAT_FILES["pips/termux-bat/examples/advanced.bat"] = `@echo off
+echo === Advanced Features ===
+echo.
+echo --- Arithmetic ---
+set /a X=2+3
+echo 2 + 3 = %X%
+set /a Y=10*7
+echo 10 * 7 = %Y%
+set /a Z=100/3
+echo 100 / 3 = %Z%
+set /a V=(2+3)*4
+echo (2+3)*4 = %V%
+echo.
+echo --- IF comparisons ---
+set /a NUM=42
+if %NUM% gtr 40 echo %NUM% is greater than 40
+if %NUM% leq 50 echo %NUM% is less or equal to 50
+echo.
+echo --- Subroutine ---
+call :greet World
+call :greet Termux
+echo.
+echo --- VER ---
+ver
+echo.
+echo === Done! ===
+goto :eof
+:greet
+echo Hello, %1!
+exit /b 0
+`;
+
+
+// ===== switch-pip FILES =====
+const PIP_FILES = {};
+
+PIP_FILES["pips/switch-pip/setup.py"] = `from setuptools import setup, find_packages
+
+setup(
+    name="switch-pip",
+    version="1.0.0",
+    description="Switch pip index-url easily. Use custom mirrors or reset to PyPI.",
+    long_description=open("README.md", encoding="utf-8").read(),
+    long_description_content_type="text/markdown",
+    author="switch-pip",
+    license="MIT",
+    packages=find_packages(),
+    python_requires=">=3.7",
+    entry_points={
+        "console_scripts": [
+            "switch-pip=switch_pip.cli:main",
+        ],
+    },
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: POSIX :: Linux",
+        "Operating System :: MacOS",
+        "Environment :: Console",
+    ],
+)
+`;
+
+PIP_FILES["pips/switch-pip/README.md"] = `# switch-pip v1.0.0
+
+Switch pip index-url (package source) with one command.
+
+## Install
+\x60\x60\x60bash
+cd pips/switch-pip
+pip install .
+\x60\x60\x60
+
+## Usage
+\x60\x60\x60bash
+switch-pip                  # Interactive mode
+switch-pip <URL>            # Set directly
+switch-pip tsinghua         # Use shortcut
+switch-pip --default        # Reset to PyPI
+switch-pip --show           # Show current
+switch-pip --list           # History
+switch-pip --test           # Test connection
+switch-pip --backup         # Backup config
+switch-pip --restore        # Restore config
+\x60\x60\x60
+
+## Popular mirrors
+| Mirror | URL |
+|--------|-----|
+| PyPI | https://pypi.org/simple/ |
+| Tsinghua | https://pypi.tuna.tsinghua.edu.cn/simple/ |
+| Aliyun | https://mirrors.aliyun.com/pypi/simple/ |
+| Douban | https://pypi.doubanio.com/simple/ |
+
+## License
+MIT
+`;
+
+PIP_FILES["pips/switch-pip/LICENSE"] = `MIT License
+
+Copyright (c) 2025 switch-pip
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+`;
+
+PIP_FILES["pips/switch-pip/switch_pip/__init__.py"] = `"""switch-pip: Switch pip index-url with one command."""
+__version__ = "1.0.0"
+`;
+
+PIP_FILES["pips/switch-pip/switch_pip/cli.py"] = `#!/usr/bin/env python3
+"""
+switch-pip CLI v1.0.0
+Switch pip index-url (package source) with one command.
+"""
+import os, sys, configparser, datetime, json, shutil
+
+DEFAULT_INDEX = "https://pypi.org/simple/"
+VERSION = "1.0.0"
+POPULAR_MIRRORS = {
+    "pypi": "https://pypi.org/simple/",
+    "tsinghua": "https://pypi.tuna.tsinghua.edu.cn/simple/",
+    "aliyun": "https://mirrors.aliyun.com/pypi/simple/",
+    "alibaba": "https://mirrors.aliyun.com/pypi/simple/",
+    "douban": "https://pypi.doubanio.com/simple/",
+    "testpypi": "https://test.pypi.org/simple/",
+}
+
+def get_pip_conf_dir():
+    xdg = os.environ.get("XDG_CONFIG_HOME", "")
+    if xdg:
+        return os.path.join(xdg, "pip")
+    home = os.path.expanduser("~")
+    if sys.platform == "darwin":
+        mac_path = os.path.join(home, "Library", "Application Support", "pip")
+        if os.path.exists(mac_path):
+            return mac_path
+        return os.path.join(home, ".config", "pip")
+    return os.path.join(home, ".config", "pip")
+
+def get_pip_conf_path():
+    conf_dir = get_pip_conf_dir()
+    if sys.platform == "win32":
+        return os.path.join(conf_dir, "pip.ini")
+    return os.path.join(conf_dir, "pip.conf")
+
+def get_history_path():
+    return os.path.join(get_pip_conf_dir(), "switch-pip-history.json")
+
+def read_pip_conf():
+    conf_path = get_pip_conf_path()
+    config = configparser.ConfigParser()
+    if os.path.exists(conf_path):
+        config.read(conf_path)
+    return config
+
+def write_pip_conf(config):
+    conf_path = get_pip_conf_path()
+    conf_dir = os.path.dirname(conf_path)
+    os.makedirs(conf_dir, exist_ok=True)
+    with open(conf_path, "w") as f:
+        config.write(f)
+
+def get_current_index():
+    config = read_pip_conf()
+    if config.has_section("global") and config.has_option("global", "index-url"):
+        return config.get("global", "index-url")
+    return DEFAULT_INDEX
+
+def set_index_url(url, trust_host=True):
+    config = read_pip_conf()
+    if not config.has_section("global"):
+        config.add_section("global")
+    config.set("global", "index-url", url)
+    if trust_host and url != DEFAULT_INDEX:
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            host = parsed.hostname
+            if host:
+                config.set("global", "trusted-host", host)
+        except Exception:
+            pass
+    elif url == DEFAULT_INDEX:
+        if config.has_option("global", "trusted-host"):
+            config.remove_option("global", "trusted-host")
+    write_pip_conf(config)
+    add_history(url)
+
+def add_history(url):
+    history_path = get_history_path()
+    history = []
+    if os.path.exists(history_path):
+        try:
+            with open(history_path, "r") as f:
+                history = json.load(f)
+        except Exception:
+            history = []
+    entry = {
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "url": url,
+        "is_default": url == DEFAULT_INDEX,
+    }
+    history.append(entry)
+    if len(history) > 50:
+        history = history[-50:]
+    conf_dir = os.path.dirname(history_path)
+    os.makedirs(conf_dir, exist_ok=True)
+    with open(history_path, "w") as f:
+        json.dump(history, f, indent=2, ensure_ascii=False)
+
+def show_current():
+    current = get_current_index()
+    conf_path = get_pip_conf_path()
+    print()
+    if current == DEFAULT_INDEX:
+        print("\\033[36m\\U0001f4e6 Current pip index-url:\\033[0m")
+        print(f"   \\033[33m{current}\\033[0m")
+        print("   \\033[90m(default PyPI)\\033[0m")
+    else:
+        print("\\033[36m\\U0001f4e6 Current pip index-url:\\033[0m")
+        print(f"   \\033[33m{current}\\033[0m")
+        print("   \\033[90m(custom mirror)\\033[0m")
+    config = read_pip_conf()
+    if config.has_section("global") and config.has_option("global", "trusted-host"):
+        host = config.get("global", "trusted-host")
+        print(f"   \\033[90mtrusted-host: {host}\\033[0m")
+    print(f"   \\033[90mConfig: {conf_path}\\033[0m")
+    exists = os.path.exists(conf_path)
+    print(f"   \\033[90mFile exists: {'yes' if exists else 'no'}\\033[0m")
+    print()
+
+def show_history():
+    history_path = get_history_path()
+    if not os.path.exists(history_path):
+        print()
+        print("\\033[90mNo switch history yet.\\033[0m")
+        print()
+        return
+    try:
+        with open(history_path, "r") as f:
+            history = json.load(f)
+    except Exception:
+        print("\\033[31mError reading history.\\033[0m")
+        return
+    if not history:
+        print()
+        print("\\033[90mNo switch history yet.\\033[0m")
+        print()
+        return
+    print()
+    print("\\033[36m\\U0001f4cb Switch history:\\033[0m")
+    print()
+    for i, entry in enumerate(history, 1):
+        ts = entry.get("timestamp", "?")
+        url = entry.get("url", "?")
+        is_def = entry.get("is_default", False)
+        marker = " \\033[32m(default)\\033[0m" if is_def else ""
+        print(f"   {i:>3}. \\033[90m{ts}\\033[0m \\033[33m{url}\\033[0m{marker}")
+    print()
+
+def test_connection():
+    current = get_current_index()
+    print()
+    print(f"\\033[36m\\U0001f50d Testing connection to:\\033[0m")
+    print(f"   \\033[33m{current}\\033[0m")
+    print()
+    import time as _time
+    start = _time.time()
+    try:
+        import urllib.request
+        req = urllib.request.Request(current, method="HEAD")
+        req.add_header("User-Agent", "switch-pip/1.0")
+        response = urllib.request.urlopen(req, timeout=10)
+        elapsed = _time.time() - start
+        code = response.getcode()
+        print(f"   \\033[32m\\u2705 Available! (HTTP {code}, {elapsed:.2f}s)\\033[0m")
+    except Exception as e:
+        elapsed = _time.time() - start
+        err_code = getattr(e, "code", None)
+        if err_code and err_code in (403, 405):
+            print(f"   \\033[32m\\u2705 Available! (HTTP {err_code}, {elapsed:.2f}s)\\033[0m")
+        else:
+            print(f"   \\033[31m\\u274c Connection failed: {e} ({elapsed:.2f}s)\\033[0m")
+    print()
+
+def backup_config():
+    conf_path = get_pip_conf_path()
+    if not os.path.exists(conf_path):
+        print()
+        print("\\033[33m\\u26a0 No pip.conf found.\\033[0m")
+        print()
+        return
+    backup_path = conf_path + ".backup"
+    shutil.copy2(conf_path, backup_path)
+    print()
+    print(f"\\033[32m\\u2705 Backup created:\\033[0m")
+    print(f"   {backup_path}")
+    print()
+
+def restore_config():
+    conf_path = get_pip_conf_path()
+    backup_path = conf_path + ".backup"
+    if not os.path.exists(backup_path):
+        print()
+        print(f"\\033[31m\\u274c No backup found at: {backup_path}\\033[0m")
+        print()
+        return
+    shutil.copy2(backup_path, conf_path)
+    current = get_current_index()
+    print()
+    print(f"\\033[32m\\u2705 Config restored!\\033[0m")
+    print(f"   Current index-url: \\033[33m{current}\\033[0m")
+    print()
+
+def set_default():
+    set_index_url(DEFAULT_INDEX, trust_host=False)
+    print()
+    print(f"\\033[32m\\u2705 pip reset to default PyPI:\\033[0m")
+    print(f"   \\033[33m{DEFAULT_INDEX}\\033[0m")
+    conf_path = get_pip_conf_path()
+    print(f"   \\033[90mConfig: {conf_path}\\033[0m")
+    print()
+
+def interactive_set():
+    print()
+    print("\\033[36m\\U0001f517 Enter pip mirror URL (index-url):\\033[0m")
+    print()
+    print("  Popular mirrors (type name or paste URL):")
+    print("    \\033[33mpypi\\033[0m      - https://pypi.org/simple/")
+    print("    \\033[33mtsinghua\\033[0m  - https://pypi.tuna.tsinghua.edu.cn/simple/")
+    print("    \\033[33maliyun\\033[0m    - https://mirrors.aliyun.com/pypi/simple/")
+    print("    \\033[33mdouban\\033[0m    - https://pypi.doubanio.com/simple/")
+    print("    \\033[33mtestpypi\\033[0m  - https://test.pypi.org/simple/")
+    print()
+    try:
+        url = input("\\033[36m> \\033[0m").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        print("\\033[90mCancelled.\\033[0m")
+        return
+    if not url:
+        print("\\033[31mNo URL provided. Cancelled.\\033[0m")
+        return
+    if url.lower() in POPULAR_MIRRORS:
+        url = POPULAR_MIRRORS[url.lower()]
+    if not url.startswith("http://") and not url.startswith("https://"):
+        print("\\033[31m\\u274c URL must start with http:// or https://\\033[0m")
+        return
+    if not url.endswith("/"):
+        url += "/"
+    old = get_current_index()
+    set_index_url(url)
+    print()
+    print(f"\\033[32m\\u2705 pip index-url changed:\\033[0m")
+    print(f"   \\033[90mOld: {old}\\033[0m")
+    print(f"   \\033[33mNew: {url}\\033[0m")
+    conf_path = get_pip_conf_path()
+    print(f"   \\033[90mConfig: {conf_path}\\033[0m")
+    print()
+
+def direct_set(url):
+    if url.lower() in POPULAR_MIRRORS:
+        url = POPULAR_MIRRORS[url.lower()]
+    if not url.startswith("http://") and not url.startswith("https://"):
+        print("\\033[31m\\u274c URL must start with http:// or https://\\033[0m")
+        sys.exit(1)
+    if not url.endswith("/"):
+        url += "/"
+    old = get_current_index()
+    set_index_url(url)
+    print()
+    print(f"\\033[32m\\u2705 pip index-url changed:\\033[0m")
+    print(f"   \\033[90mOld: {old}\\033[0m")
+    print(f"   \\033[33mNew: {url}\\033[0m")
+    conf_path = get_pip_conf_path()
+    print(f"   \\033[90mConfig: {conf_path}\\033[0m")
+    print()
+
+def show_help():
+    print()
+    print("\\033[1mswitch-pip v1.0.0\\033[0m - Switch pip package source easily")
+    print()
+    print("\\033[1mUsage:\\033[0m")
+    print("  switch-pip                    Interactive mode")
+    print("  switch-pip <URL>              Set index-url directly")
+    print("  switch-pip <shortcut>         Use named mirror")
+    print("  switch-pip --default          Reset to PyPI")
+    print("  switch-pip --show             Show current index-url")
+    print("  switch-pip --list             Show switch history")
+    print("  switch-pip --test             Test connection")
+    print("  switch-pip --backup           Backup pip.conf")
+    print("  switch-pip --restore          Restore pip.conf")
+    print("  switch-pip --help             Show this help")
+    print("  switch-pip --version          Show version")
+    print()
+    print("\\033[1mShortcuts:\\033[0m")
+    for name, url in POPULAR_MIRRORS.items():
+        print(f"  {name:<12} {url}")
+    print()
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        interactive_set()
+        return
+    arg = args[0]
+    if arg in ("--help", "-h"):
+        show_help()
+    elif arg in ("--version", "-v"):
+        print(f"switch-pip {VERSION}")
+    elif arg in ("--default", "-d", "--reset"):
+        set_default()
+    elif arg in ("--show", "-s", "--current"):
+        show_current()
+    elif arg in ("--list", "-l", "--history"):
+        show_history()
+    elif arg in ("--test", "-t"):
+        test_connection()
+    elif arg in ("--backup", "-b"):
+        backup_config()
+    elif arg in ("--restore", "-r"):
+        restore_config()
+    elif arg.startswith("--"):
+        print(f"\\033[31mUnknown option: {arg}\\033[0m")
+        print("Use --help for usage info.")
+        sys.exit(1)
+    else:
+        direct_set(arg)
+
+if __name__ == "__main__":
+    main()
+`;
+
+
+// ===== ZIP DOWNLOAD FUNCTIONS =====
+async function downloadBat() {
+    const status = document.getElementById('batStatus');
+    status.textContent = '⏳ Генерация ZIP...';
+    status.className = 'mt-2 text-xs text-center text-yellow-400';
+    try {
+        const zip = new JSZip();
+        for (const [path, content] of Object.entries(BAT_FILES)) {
+            zip.file(path, content);
+        }
+        const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 9 } });
+        triggerDownload(blob, 'termux-bat.zip');
+        status.textContent = '✅ Скачивание начато!';
+        status.className = 'mt-2 text-xs text-center text-green-400';
+        setTimeout(() => { status.textContent = ''; }, 5000);
+    } catch (e) {
+        status.textContent = '❌ Ошибка: ' + e.message;
+        status.className = 'mt-2 text-xs text-center text-red-400';
+    }
+}
+
+async function downloadPip() {
+    const status = document.getElementById('pipStatus');
+    status.textContent = '⏳ Генерация ZIP...';
+    status.className = 'mt-2 text-xs text-center text-yellow-400';
+    try {
+        const zip = new JSZip();
+        for (const [path, content] of Object.entries(PIP_FILES)) {
+            zip.file(path, content);
+        }
+        const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 9 } });
+        triggerDownload(blob, 'switch-pip.zip');
+        status.textContent = '✅ Скачивание начато!';
+        status.className = 'mt-2 text-xs text-center text-blue-400';
+        setTimeout(() => { status.textContent = ''; }, 5000);
+    } catch (e) {
+        status.textContent = '❌ Ошибка: ' + e.message;
+        status.className = 'mt-2 text-xs text-center text-red-400';
+    }
+}
+
+async function downloadAll() {
+    const status = document.getElementById('allStatus');
+    status.textContent = '⏳ Генерация ZIP со всеми пакетами...';
+    status.className = 'mt-4 text-sm text-yellow-400';
+    try {
+        const zip = new JSZip();
+        for (const [path, content] of Object.entries(BAT_FILES)) {
+            zip.file(path, content);
+        }
+        for (const [path, content] of Object.entries(PIP_FILES)) {
+            zip.file(path, content);
+        }
+        const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 9 } });
+        triggerDownload(blob, 'pips.zip');
+        status.textContent = '✅ pips.zip скачивается! Распакуй и делай pip install .';
+        status.className = 'mt-4 text-sm text-amber-400';
+        setTimeout(() => { status.textContent = ''; }, 6000);
+    } catch (e) {
+        status.textContent = '❌ Ошибка: ' + e.message;
+        status.className = 'mt-4 text-sm text-red-400';
+    }
+}
+
+function triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+</script>
+
+</body>
+</html>
